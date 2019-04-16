@@ -316,44 +316,84 @@ func (p *MediaPlaylist) AppendSegment(seg *MediaSegment) error {
 	return nil
 }
 
-type segComparator []*MediaSegment
+func (p *MediaPlaylist) tailSeg() *MediaSegment {
+	// Precondition: Caller already holds the lock for the given MediaPlaylist.
+	if int(p.tail)-1 < 0 {
+		return p.Segments[p.capacity-1]
+	}
+	return p.Segments[p.tail-1]
+}
 
-func (items segComparator) Len() int      { return len(items) }
-func (items segComparator) Swap(i, j int) { items[i], items[j] = items[j], items[i] }
-func (items segComparator) Less(i, j int) bool {
-	return items[i] != nil && items[j] != nil && items[i].SeqId < items[j].SeqId
+func (p *MediaPlaylist) segAt(i int) *MediaSegment {
+	// Precondition: Caller already holds the lock for the given MediaPlaylist.
+	i = (i + int(p.head)) % int(p.capacity)
+	return p.Segments[i]
+}
+
+// methods for pkg.Sort interface
+func (p *MediaPlaylist) Len() int {
+	// Precondition: Caller already holds the lock for the given MediaPlaylist.
+	return int(p.count)
+}
+func (p *MediaPlaylist) Swap(i, j int) {
+	head := int(p.head)
+	cap := int(p.capacity)
+	i = (i + head) % cap
+	j = (j + head) % cap
+	items := p.Segments
+	items[i], items[j] = items[j], items[i]
+}
+func (p *MediaPlaylist) Less(i, j int) bool {
+	a, b := p.segAt(i), p.segAt(j)
+	return a != nil && b != nil && a.SeqId < b.SeqId
 }
 
 // InsertSegment inserts a MediaSegment to the correct index (by resorting the segments) according to SeqNo. This is because in a live streaming scenario, segments can arrive out-of-order.
 // This operation does reset playlist cache (by calling AppendSegment).
+// Invariant: Internal segment list is always sorted
 func (p *MediaPlaylist) InsertSegment(seqNo uint64, seg *MediaSegment) error {
-	var err error
 
 	seg.SeqId = seqNo
-	segs := p.Segments[p.head:p.tail]
-	i := sort.Search(len(segs), func(i int) bool { return segs[i] != nil && segs[i].SeqId >= seqNo })
+	p.lock.Lock()
+	defer p.lock.Unlock()
 
-	if i < len(segs) && segs[i] != nil && segs[i].SeqId == seqNo {
+	last := p.tailSeg()
+	if last == nil || last.SeqId < seqNo {
+		// playlist smaller than winsize or a normally incrementing seqno
+		if err := p.AppendSegment(seg); err != nil {
+			return err
+		}
+		if !p.Closed && p.count > p.winsize {
+			return p.Remove()
+		}
+		return nil
+	}
+	if last.SeqId == seqNo {
+		return ErrSegmentAlreadyExists
+	}
+	// last.seqId > seqNo : out of order, so handle
+
+	// First determine if there was an earlier segment with the same seqNo
+	i := sort.Search(int(p.count), func(i int) bool {
+		s := p.segAt(i)
+		return s != nil && s.SeqId >= seqNo
+	})
+	if s := p.segAt(i); i < len(p.Segments) && s != nil && s.SeqId == seqNo {
 		return ErrSegmentAlreadyExists
 	}
 
-	p.lock.Lock()
-	defer p.lock.Unlock()
-	err = p.AppendSegment(seg)
-
-	//Sort if the inserted segment is out of order
-	if p.Count() > 1 && p.Segments[p.tail-1].SeqId != p.Segments[p.tail-2].SeqId+1 {
-		sort.Sort(segComparator(p.Segments))
+	// Insert the segment then re-sort
+	if err := p.AppendSegment(seg); err != nil {
+		return err
 	}
+	sort.Sort(p)
 
 	//Remove the last segment to preserve winsize (for live streaming)
-	if !p.Closed && p.count >= p.winsize && p.head+p.winsize < p.tail {
+	if !p.Closed && p.count > p.winsize {
 		p.Remove()
 	}
 
-	p.SeqNo = p.Segments[p.head].SeqId
-
-	return err
+	return nil
 }
 
 // Combines two operations: firstly it removes one chunk from the head of chunk slice and move pointer to

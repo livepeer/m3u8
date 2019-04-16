@@ -97,7 +97,7 @@ func TestAppendSegmentToMediaPlaylist(t *testing.T) {
 }
 
 func TestInsertSegmentToMediaPlaylist(t *testing.T) {
-	p, _ := NewMediaPlaylist(3, 10)
+	p, _ := NewMediaPlaylist(3, 5)
 	e := p.InsertSegment(1, &MediaSegment{SeqId: 1})
 	if e != nil {
 		t.Errorf("Add 1st segment to a media playlist failed: %s", e)
@@ -113,9 +113,12 @@ func TestInsertSegmentToMediaPlaylist(t *testing.T) {
 		t.Errorf("Add 3rd segment to a media playlist failed: %s", e)
 	}
 
-	for i := uint64(0); i < 3; i++ {
-		if p.Segments[i].SeqId != i+1 {
-			t.Errorf("Expecting SeqNo to be %d, got %d", i+1, p.Segments[i].SeqId)
+	checkExpected := func(expected []int) {
+		for i := 0; i < len(expected); i++ {
+			s := p.segAt(i)
+			if int(s.SeqId) != expected[i] {
+				t.Errorf("Expected segment %d; got %d\n", expected[i], s.SeqId)
+			}
 		}
 	}
 
@@ -124,6 +127,8 @@ func TestInsertSegmentToMediaPlaylist(t *testing.T) {
 		t.Errorf("Add 4th expected segment already exists error, got %s", e)
 	}
 
+	// technically this one fails due to being smaller than smallest in window
+	// insert "succeeds" but doesn't show up in list. Should we fail instead?
 	e = p.InsertSegment(0, &MediaSegment{SeqId: 0})
 	if e != nil {
 		t.Errorf("Add 4th segment to a media playlist failed: %s", e)
@@ -140,7 +145,13 @@ func TestInsertSegmentToMediaPlaylist(t *testing.T) {
 	if p.tail != 4 {
 		t.Errorf("Tail should be 4, but got %v", p.tail)
 	}
+	if p.SeqNo != 1 {
+		t.Errorf("SeqNo should be 1, but got %v", p.SeqNo)
+	}
 
+	checkExpected([]int{1, 2, 3})
+
+	// Test exceeding segment window size
 	e = p.InsertSegment(4, &MediaSegment{SeqId: 4})
 	if e != nil {
 		t.Errorf("Add 5th segment to a media playlist failed: %s", e)
@@ -155,6 +166,28 @@ func TestInsertSegmentToMediaPlaylist(t *testing.T) {
 		t.Errorf("SeqNo should be 2, but got %v", p.SeqNo)
 	}
 
+	checkExpected([]int{2, 3, 4})
+
+	// Test exceeding segment capacity and out of order inserts when tail < head
+	e = p.InsertSegment(6, &MediaSegment{SeqId: 6})
+	if e != nil {
+		t.Error("Adding 5th segment to media playlist failed: ", e)
+	}
+	if p.tail >= p.head {
+		t.Errorf("Expected tail < head, but got tail(%d) head(%d)", p.tail, p.head)
+	}
+	e = p.InsertSegment(5, &MediaSegment{SeqId: 5})
+	if e != nil {
+		t.Error("Adding 6th segment to media playlist failed: ", e)
+	}
+	checkExpected([]int{4, 5, 6})
+
+	// check out of bounds "early" inserts with wraparound head / tails
+	e = p.InsertSegment(2, &MediaSegment{SeqId: 2})
+	if e != nil {
+		t.Error("Adding 7th segment to media playlist failed: ", e)
+	}
+	checkExpected([]int{4, 5, 6})
 }
 
 // Create new media playlist
