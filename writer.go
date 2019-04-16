@@ -263,6 +263,7 @@ func NewMediaPlaylist(winsize uint, capacity uint) (*MediaPlaylist, error) {
 	}
 	p.Segments = make([]*MediaSegment, capacity)
 	p.lock = &sync.Mutex{}
+	p.Live = true
 	return p, nil
 }
 
@@ -282,7 +283,7 @@ func (p *MediaPlaylist) Remove() (err error) {
 	}
 	p.head = (p.head + 1) % p.capacity
 	p.count--
-	if !p.Closed {
+	if p.Live {
 		p.SeqNo++
 	}
 	p.buf.Reset()
@@ -363,7 +364,7 @@ func (p *MediaPlaylist) InsertSegment(seqNo uint64, seg *MediaSegment) error {
 		if err := p.AppendSegment(seg); err != nil {
 			return err
 		}
-		if !p.Closed && p.count > p.winsize {
+		if p.Live && p.count > p.winsize {
 			return p.Remove()
 		}
 		return nil
@@ -389,7 +390,7 @@ func (p *MediaPlaylist) InsertSegment(seqNo uint64, seg *MediaSegment) error {
 	sort.Sort(p)
 
 	//Remove the last segment to preserve winsize (for live streaming)
-	if !p.Closed && p.count > p.winsize {
+	if p.Live && p.count > p.winsize {
 		p.Remove()
 	}
 
@@ -400,9 +401,9 @@ func (p *MediaPlaylist) InsertSegment(seqNo uint64, seg *MediaSegment) error {
 // next chunk. Secondly it appends one chunk to the tail of chunk slice. Useful for sliding playlists.
 // This operation does reset cache.
 func (p *MediaPlaylist) Slide(uri string, duration float64, title string) {
-	if !p.Closed && p.count >= p.winsize {
+	if p.Live && p.count >= p.winsize {
 		p.Remove()
-	} else if !p.Closed {
+	} else if p.Live {
 		p.SeqNo++
 	}
 	p.Append(uri, duration, title)
@@ -666,7 +667,7 @@ func (p *MediaPlaylist) Encode() *bytes.Buffer {
 		}
 		p.buf.WriteRune('\n')
 	}
-	if p.Closed {
+	if !p.Live {
 		p.buf.WriteString("#EXT-X-ENDLIST\n")
 	}
 	return &p.buf
@@ -698,7 +699,7 @@ func (p *MediaPlaylist) Close() {
 	if p.buf.Len() > 0 {
 		p.buf.WriteString("#EXT-X-ENDLIST\n")
 	}
-	p.Closed = true
+	p.Live = false
 }
 
 // Set encryption key appeared once in header of the playlist (pointer to MediaPlaylist.Key).

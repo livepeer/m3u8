@@ -193,7 +193,7 @@ func decode(buf *bytes.Buffer, strict bool) (Playlist, ListType, error) {
 	case MASTER:
 		return master, MASTER, nil
 	case MEDIA:
-		if media.Closed || media.MediaType == EVENT {
+		if !media.Live || media.MediaType == EVENT {
 			// VoD and Event's should show the entire playlist
 			media.SetWinSize(0)
 		}
@@ -440,7 +440,7 @@ func decodeLineOfMediaPlaylist(p *MediaPlaylist, wv *WV, state *decodingState, l
 		state.m3u = true
 	case line == "#EXT-X-ENDLIST":
 		state.listType = MEDIA
-		p.Closed = true
+		p.Live = false
 	case strings.HasPrefix(line, "#EXT-X-VERSION:"):
 		state.listType = MEDIA
 		if _, err = fmt.Sscanf(line, "#EXT-X-VERSION:%d", &p.ver); strict && err != nil {
