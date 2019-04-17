@@ -108,7 +108,7 @@ type MediaPlaylist struct {
 	Segments       []*MediaSegment
 	Args           string // optional arguments placed after URIs (URI?Args)
 	Iframe         bool   // EXT-X-I-FRAMES-ONLY
-	Closed         bool   // is this VOD (closed) or Live (sliding) playlist?
+	Live           bool   // is this a VOD or Live (sliding window) playlist?
 	MediaType      MediaType
 	durationAsInt  bool // output durations as integers of floats?
 	keyformat      int
