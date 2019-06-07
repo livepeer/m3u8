@@ -75,32 +75,32 @@ const (
 )
 
 /*
- This structure represents a single bitrate playlist aka media playlist.
- It related to both a simple media playlists and a sliding window media playlists.
- URI lines in the Playlist point to media segments.
+MediaPlaylist structure represents a single bitrate playlist aka media playlist.
+It related to both a simple media playlists and a sliding window media playlists.
+URI lines in the Playlist point to media segments.
 
- Simple Media Playlist file sample:
+Simple Media Playlist file sample:
 
-   #EXTM3U
-   #EXT-X-VERSION:3
-   #EXT-X-TARGETDURATION:5220
-   #EXTINF:5219.2,
-   http://media.example.com/entire.ts
-   #EXT-X-ENDLIST
+  #EXTM3U
+  #EXT-X-VERSION:3
+  #EXT-X-TARGETDURATION:5220
+  #EXTINF:5219.2,
+  http://media.example.com/entire.ts
+  #EXT-X-ENDLIST
 
- Sample of Sliding Window Media Playlist, using HTTPS:
+Sample of Sliding Window Media Playlist, using HTTPS:
 
-   #EXTM3U
-   #EXT-X-VERSION:3
-   #EXT-X-TARGETDURATION:8
-   #EXT-X-MEDIA-SEQUENCE:2680
+  #EXTM3U
+  #EXT-X-VERSION:3
+  #EXT-X-TARGETDURATION:8
+  #EXT-X-MEDIA-SEQUENCE:2680
 
-   #EXTINF:7.975,
-   https://priv.example.com/fileSequence2680.ts
-   #EXTINF:7.941,
-   https://priv.example.com/fileSequence2681.ts
-   #EXTINF:7.975,
-   https://priv.example.com/fileSequence2682.ts
+  #EXTINF:7.975,
+  https://priv.example.com/fileSequence2680.ts
+  #EXTINF:7.941,
+  https://priv.example.com/fileSequence2681.ts
+  #EXTINF:7.975,
+  https://priv.example.com/fileSequence2682.ts
 */
 type MediaPlaylist struct {
 	TargetDuration float64
@@ -119,16 +119,18 @@ type MediaPlaylist struct {
 	count          uint // number of segments added to the playlist
 	buf            bytes.Buffer
 	ver            uint8
-	Key            *Key // EXT-X-KEY is optional encryption key displayed before any segments (default key for the playlist)
-	Map            *Map // EXT-X-MAP is optional tag specifies how to obtain the Media Initialization Section (default map for the playlist)
-	WV             *WV  // Widevine related tags outside of M3U8 specs
-	lock           *sync.Mutex
+	Key            *Key        // EXT-X-KEY is optional encryption key displayed before any segments (default key for the playlist)
+	Map            *Map        // EXT-X-MAP is optional tag specifies how to obtain the Media Initialization Section (default map for the playlist)
+	WV             *WV         // Widevine related tags outside of M3U8 specs
+	lock           *sync.Mutex // protects `buf` during it's generation
+	// modification of `head`, `tail` and `count` should be protected by `lock`
+	dirty bool // indicates that `buf` should be regenerated
 }
 
 /*
- This structure represents a master playlist which combines media playlists for multiple bitrates.
- URI lines in the playlist identify media playlists.
- Sample of Master Playlist file:
+MasterPlaylist structure represents a master playlist which combines media playlists for multiple bitrates.
+URI lines in the playlist identify media playlists.
+Sample of Master Playlist file:
 
    #EXTM3U
    #EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=1280000
@@ -146,9 +148,11 @@ type MasterPlaylist struct {
 	CypherVersion string // non-standard tag for Widevine (see also WV struct)
 	buf           bytes.Buffer
 	ver           uint8
+	lock          *sync.Mutex // protects access to `buf` during it's generation
+	dirty         bool        // indicates that `buf` should be regenerated
 }
 
-// This structure represents variants for master playlist.
+// Variant structure represents variants for master playlist.
 // Variants included in a master playlist and point to media playlists.
 type Variant struct {
 	URI       string
@@ -156,7 +160,7 @@ type Variant struct {
 	VariantParams
 }
 
-// This structure represents additional parameters for a variant
+// VariantParams structure represents additional parameters for a variant
 // used in EXT-X-STREAM-INF and EXT-X-I-FRAME-STREAM-INF
 type VariantParams struct {
 	ProgramId    uint32
@@ -172,7 +176,7 @@ type VariantParams struct {
 	Alternatives []*Alternative // EXT-X-MEDIA
 }
 
-// This structure represents EXT-X-MEDIA tag in variants.
+// Alternative structure represents EXT-X-MEDIA tag in variants.
 type Alternative struct {
 	GroupId         string
 	URI             string
@@ -186,7 +190,7 @@ type Alternative struct {
 	Subtitles       string
 }
 
-// This structure represents a media segment included in a media playlist.
+// MediaSegment structure represents a media segment included in a media playlist.
 // Media segment may be encrypted.
 // Widevine supports own tags for encryption metadata.
 type MediaSegment struct {
@@ -213,7 +217,7 @@ type SCTE struct {
 	Elapsed float64
 }
 
-// This structure represents information about stream encryption.
+// Key structure represents information about stream encryption.
 //
 // Realizes EXT-X-KEY tag.
 type Key struct {
@@ -258,7 +262,7 @@ type WV struct {
 	VideoSAR               string
 }
 
-// Interface applied to various playlist types.
+// Playlist interface applied to various playlist types.
 type Playlist interface {
 	Encode() *bytes.Buffer
 	Decode(bytes.Buffer, bool) error

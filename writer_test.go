@@ -20,6 +20,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // Check how master and media playlists implement common Playlist interface
@@ -952,4 +954,28 @@ func BenchmarkEncodeMediaPlaylist(b *testing.B) {
 		p.ResetCache()
 		_ = p.Encode() // disregard output
 	}
+}
+
+func TestMediaPlaylistDirtyFlag(t *testing.T) {
+	assert := assert.New(t)
+	p, _ := NewMediaPlaylist(3, 5)
+	assert.True(p.dirty)
+	p.Encode()
+	assert.False(p.dirty)
+	e := p.InsertSegment(1, &MediaSegment{SeqId: 1})
+	assert.NoError(e)
+	assert.True(p.dirty)
+}
+
+func TestMasterPlaylistDirtyFlag(t *testing.T) {
+	assert := assert.New(t)
+	m := NewMasterPlaylist()
+	assert.True(m.dirty)
+	m.Encode()
+	assert.False(m.dirty)
+	p, _ := NewMediaPlaylist(3, 5)
+	m.Append("chunklist1.m3u8", p, VariantParams{})
+	assert.True(p.dirty)
+	m.Encode()
+	assert.False(m.dirty)
 }

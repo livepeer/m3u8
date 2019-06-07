@@ -39,17 +39,21 @@ func strver(ver uint8) string {
 	return strconv.FormatUint(uint64(ver), 10)
 }
 
-// Create new empty master playlist.
+// NewMasterPlaylist create new empty master playlist.
 // Master playlist consists of variants.
 func NewMasterPlaylist() *MasterPlaylist {
 	p := new(MasterPlaylist)
 	p.ver = minver
+	p.dirty = true
+	p.lock = &sync.Mutex{}
 	return p
 }
 
 // Append variant to master playlist.
 // This operation does reset playlist cache.
 func (p *MasterPlaylist) Append(uri string, chunklist *MediaPlaylist, params VariantParams) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
 	v := new(Variant)
 	v.URI = uri
 	v.Chunklist = chunklist
@@ -65,18 +69,23 @@ func (p *MasterPlaylist) Append(uri string, chunklist *MediaPlaylist, params Var
 		version(&p.ver, 4) // so it is optional and in theory may be set to ver.1
 		// but more tests required
 	}
-	p.buf.Reset()
+	p.dirty = true
 }
 
 func (p *MasterPlaylist) ResetCache() {
-	p.buf.Reset()
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	p.dirty = true
 }
 
 // Generate output in M3U8 format.
 func (p *MasterPlaylist) Encode() *bytes.Buffer {
-	if p.buf.Len() > 0 {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	if !p.dirty && p.buf.Len() > 0 {
 		return &p.buf
 	}
+	p.dirty = false
 
 	p.buf.WriteString("#EXTM3U\n#EXT-X-VERSION:")
 	p.buf.WriteString(strver(p.ver))
@@ -242,6 +251,7 @@ func (p *MasterPlaylist) Version() uint8 {
 // automatically by other Set methods.
 func (p *MasterPlaylist) SetVersion(ver uint8) {
 	p.ver = ver
+	p.dirty = true
 }
 
 // For compatibility with Stringer interface
@@ -251,12 +261,13 @@ func (p *MasterPlaylist) String() string {
 	return p.Encode().String()
 }
 
-// Creates new media playlist structure.
+// NewMediaPlaylist creates new media playlist structure.
 // Winsize defines how much items will displayed on playlist generation.
 // Capacity is total size of a playlist.
 func NewMediaPlaylist(winsize uint, capacity uint) (*MediaPlaylist, error) {
 	p := new(MediaPlaylist)
 	p.ver = minver
+	p.dirty = true
 	p.capacity = capacity
 	if err := p.SetWinSize(winsize); err != nil {
 		return nil, err
@@ -278,6 +289,13 @@ func (p *MediaPlaylist) last() uint {
 // Remove current segment from the head of chunk slice form a media playlist. Useful for sliding playlists.
 // This operation does reset playlist cache.
 func (p *MediaPlaylist) Remove() (err error) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	err = p.remove()
+	return err
+}
+
+func (p *MediaPlaylist) remove() (err error) {
 	if p.count == 0 {
 		return errors.New("playlist is empty")
 	}
@@ -286,24 +304,36 @@ func (p *MediaPlaylist) Remove() (err error) {
 	if p.Live {
 		p.SeqNo++
 	}
-	p.buf.Reset()
+	p.dirty = true
 	return nil
 }
 
 // Append general chunk to the tail of chunk slice for a media playlist.
 // This operation does reset playlist cache.
 func (p *MediaPlaylist) Append(uri string, duration float64, title string) error {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	return p.append(uri, duration, title)
+}
+
+func (p *MediaPlaylist) append(uri string, duration float64, title string) error {
 	seg := new(MediaSegment)
 	seg.URI = uri
 	seg.Duration = duration
 	seg.Title = title
 	// seg.SeqId = uint64(p.tail)
-	return p.AppendSegment(seg)
+	return p.appendSegment(seg)
 }
 
 // AppendSegment appends a MediaSegment to the tail of chunk slice for a media playlist.
 // This operation does reset playlist cache.
 func (p *MediaPlaylist) AppendSegment(seg *MediaSegment) error {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	return p.appendSegment(seg)
+}
+
+func (p *MediaPlaylist) appendSegment(seg *MediaSegment) error {
 	if p.head == p.tail && p.count > 0 {
 		return ErrPlaylistFull
 	}
@@ -313,7 +343,7 @@ func (p *MediaPlaylist) AppendSegment(seg *MediaSegment) error {
 	if p.TargetDuration < seg.Duration {
 		p.TargetDuration = math.Ceil(seg.Duration)
 	}
-	p.buf.Reset()
+	p.dirty = true
 	return nil
 }
 
@@ -361,11 +391,11 @@ func (p *MediaPlaylist) InsertSegment(seqNo uint64, seg *MediaSegment) error {
 	last := p.tailSeg()
 	if last == nil || last.SeqId < seqNo {
 		// playlist smaller than winsize or a normally incrementing seqno
-		if err := p.AppendSegment(seg); err != nil {
+		if err := p.appendSegment(seg); err != nil {
 			return err
 		}
 		if p.Live && p.count > p.winsize {
-			return p.Remove()
+			return p.remove()
 		}
 		return nil
 	}
@@ -384,14 +414,14 @@ func (p *MediaPlaylist) InsertSegment(seqNo uint64, seg *MediaSegment) error {
 	}
 
 	// Insert the segment then re-sort
-	if err := p.AppendSegment(seg); err != nil {
+	if err := p.appendSegment(seg); err != nil {
 		return err
 	}
 	sort.Sort(p)
 
 	//Remove the last segment to preserve winsize (for live streaming)
 	if p.Live && p.count > p.winsize {
-		p.Remove()
+		p.remove()
 	}
 
 	return nil
@@ -401,24 +431,31 @@ func (p *MediaPlaylist) InsertSegment(seqNo uint64, seg *MediaSegment) error {
 // next chunk. Secondly it appends one chunk to the tail of chunk slice. Useful for sliding playlists.
 // This operation does reset cache.
 func (p *MediaPlaylist) Slide(uri string, duration float64, title string) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
 	if p.Live && p.count >= p.winsize {
-		p.Remove()
+		p.remove()
 	} else if p.Live {
 		p.SeqNo++
 	}
-	p.Append(uri, duration, title)
+	p.append(uri, duration, title)
 }
 
 // Reset playlist cache. Next called Encode() will regenerate playlist from the chunk slice.
 func (p *MediaPlaylist) ResetCache() {
-	p.buf.Reset()
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	p.dirty = true
 }
 
 // Generate output in M3U8 format. Marshal `winsize` elements from bottom of the `segments` queue.
 func (p *MediaPlaylist) Encode() *bytes.Buffer {
-	if p.buf.Len() > 0 {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	if !p.dirty && p.buf.Len() > 0 {
 		return &p.buf
 	}
+	p.dirty = false
 
 	p.buf.WriteString("#EXTM3U\n#EXT-X-VERSION:")
 	p.buf.WriteString(strver(p.ver))
@@ -696,6 +733,8 @@ func (p *MediaPlaylist) Count() uint {
 
 // Close sliding playlist and make them fixed.
 func (p *MediaPlaylist) Close() {
+	p.lock.Lock()
+	defer p.lock.Unlock()
 	if p.buf.Len() > 0 {
 		p.buf.WriteString("#EXT-X-ENDLIST\n")
 	}
