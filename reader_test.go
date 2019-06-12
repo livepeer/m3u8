@@ -242,7 +242,7 @@ func TestDecodeMediaPlaylistDoubleHeader(t *testing.T) {
 		t.Fatalf("Create media playlist failed: %s", err)
 	}
 	err = p.Decode(*bytes.NewBuffer([]byte(badMediaPlaylist)), true)
-	assert.Error(err, "Should be error")
+	assert.EqualError(err, errStartTag.Error(), "Multiple EXTM3U headers should return `Start tag already seen` error")
 }
 
 func TestDecodeMediaPlaylistExtInfNonStrict2(t *testing.T) {
