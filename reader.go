@@ -219,6 +219,9 @@ func decodeLineOfMasterPlaylist(p *MasterPlaylist, state *decodingState, line st
 
 	switch {
 	case line == "#EXTM3U": // start tag first
+		if strict && state.m3u {
+			return fmt.Errorf("Start tag already seen")
+		}
 		state.m3u = true
 	case strings.HasPrefix(line, "#EXT-X-VERSION:"): // version tag
 		state.listType = MASTER
@@ -437,6 +440,9 @@ func decodeLineOfMediaPlaylist(p *MediaPlaylist, wv *WV, state *decodingState, l
 		}
 	// start tag first
 	case line == "#EXTM3U":
+		if strict && state.m3u {
+			return fmt.Errorf("Start tag already seen")
+		}
 		state.m3u = true
 	case line == "#EXT-X-ENDLIST":
 		state.listType = MEDIA

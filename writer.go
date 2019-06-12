@@ -86,6 +86,7 @@ func (p *MasterPlaylist) Encode() *bytes.Buffer {
 		return &p.buf
 	}
 	p.dirty = false
+	p.buf.Reset()
 
 	p.buf.WriteString("#EXTM3U\n#EXT-X-VERSION:")
 	p.buf.WriteString(strver(p.ver))
@@ -456,6 +457,7 @@ func (p *MediaPlaylist) Encode() *bytes.Buffer {
 		return &p.buf
 	}
 	p.dirty = false
+	p.buf.Reset()
 
 	p.buf.WriteString("#EXTM3U\n#EXT-X-VERSION:")
 	p.buf.WriteString(strver(p.ver))

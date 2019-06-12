@@ -16,7 +16,22 @@ import (
 	"os"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
+
+const badMediaPlaylist = `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-TARGETDURATION:2
+#EXTINF:1.968,
+/stream/official_test_source_2s_keys_24pfsmp4_3b7900e6a5d0c1c3a3a2_0/source/0.ts
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-TARGETDURATION:2
+#EXTINF:1.968,
+/stream/official_test_source_2s_keys_24pfsmp4_3b7900e6a5d0c1c3a3a2_0/source/0.ts`
 
 func TestDecodeMasterPlaylist(t *testing.T) {
 	f, err := os.Open("sample-playlists/master.m3u8")
@@ -218,6 +233,16 @@ func TestDecodeMediaPlaylist(t *testing.T) {
 	}
 	// TODO check other values…
 	//fmt.Println(p.Encode().String()), stream.Name}
+}
+
+func TestDecodeMediaPlaylistDoubleHeader(t *testing.T) {
+	assert := assert.New(t)
+	p, err := NewMediaPlaylist(5, 798)
+	if err != nil {
+		t.Fatalf("Create media playlist failed: %s", err)
+	}
+	err = p.Decode(*bytes.NewBuffer([]byte(badMediaPlaylist)), true)
+	assert.Error(err, "Should be error")
 }
 
 func TestDecodeMediaPlaylistExtInfNonStrict2(t *testing.T) {
