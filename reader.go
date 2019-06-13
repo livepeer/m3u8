@@ -23,6 +23,7 @@ import (
 )
 
 var reKeyValue = regexp.MustCompile(`([a-zA-Z0-9_-]+)=("[^"]+"|[^",]+)`)
+var errStartTag = errors.New("Start tag already seen")
 
 // Allow globally apply and/or override Time Parser function.
 // Available variants:
@@ -61,7 +62,7 @@ func (p *MasterPlaylist) decode(buf *bytes.Buffer, strict bool) error {
 		} else if err != nil {
 			break
 		}
-		err = decodeLineOfMasterPlaylist(p, state, line, strict)
+		err = decodeLineOfMasterPlaylist(p, state, line, strict, false)
 		if strict && err != nil {
 			return err
 		}
@@ -105,7 +106,7 @@ func (p *MediaPlaylist) decode(buf *bytes.Buffer, strict bool) error {
 			break
 		}
 
-		err = decodeLineOfMediaPlaylist(p, wv, state, line, strict)
+		err = decodeLineOfMediaPlaylist(p, wv, state, line, strict, false)
 		if strict && err != nil {
 			return err
 		}
@@ -170,12 +171,12 @@ func decode(buf *bytes.Buffer, strict bool) (Playlist, ListType, error) {
 			continue
 		}
 
-		err = decodeLineOfMasterPlaylist(master, state, line, strict)
+		err = decodeLineOfMasterPlaylist(master, state, line, strict, true)
 		if strict && err != nil {
 			return master, state.listType, err
 		}
 
-		err = decodeLineOfMediaPlaylist(media, wv, state, line, strict)
+		err = decodeLineOfMediaPlaylist(media, wv, state, line, strict, true)
 		if strict && err != nil {
 			return media, state.listType, err
 		}
@@ -212,13 +213,16 @@ func decodeParamsLine(line string) map[string]string {
 }
 
 // Parse one line of master playlist.
-func decodeLineOfMasterPlaylist(p *MasterPlaylist, state *decodingState, line string, strict bool) error {
+func decodeLineOfMasterPlaylist(p *MasterPlaylist, state *decodingState, line string, strict, sharedState bool) error {
 	var err error
 
 	line = strings.TrimSpace(line)
 
 	switch {
 	case line == "#EXTM3U": // start tag first
+		if strict && state.m3u && !sharedState {
+			return errStartTag
+		}
 		state.m3u = true
 	case strings.HasPrefix(line, "#EXT-X-VERSION:"): // version tag
 		state.listType = MASTER
@@ -348,7 +352,7 @@ func decodeLineOfMasterPlaylist(p *MasterPlaylist, state *decodingState, line st
 }
 
 // Parse one line of media playlist.
-func decodeLineOfMediaPlaylist(p *MediaPlaylist, wv *WV, state *decodingState, line string, strict bool) error {
+func decodeLineOfMediaPlaylist(p *MediaPlaylist, wv *WV, state *decodingState, line string, strict, sharedState bool) error {
 	var err error
 
 	line = strings.TrimSpace(line)
@@ -437,6 +441,9 @@ func decodeLineOfMediaPlaylist(p *MediaPlaylist, wv *WV, state *decodingState, l
 		}
 	// start tag first
 	case line == "#EXTM3U":
+		if strict && state.m3u && !sharedState {
+			return errStartTag
+		}
 		state.m3u = true
 	case line == "#EXT-X-ENDLIST":
 		state.listType = MEDIA
