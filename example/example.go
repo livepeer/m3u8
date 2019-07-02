@@ -6,7 +6,7 @@ import (
 	"os"
 	"path"
 
-	"github.com/grafov/m3u8"
+	"github.com/livepeer/m3u8"
 )
 
 func main() {
@@ -14,7 +14,7 @@ func main() {
 	if GOPATH == "" {
 		panic("$GOPATH is empty")
 	}
-	m3u8File := "github.com/grafov/m3u8/sample-playlists/media-playlist-with-byterange.m3u8"
+	m3u8File := "github.com/livepeer/m3u8/sample-playlists/media-playlist-with-byterange.m3u8"
 	f, err := os.Open(path.Join(GOPATH, "src", m3u8File))
 	if err != nil {
 		panic(err)
