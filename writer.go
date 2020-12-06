@@ -274,7 +274,7 @@ func NewMediaPlaylist(winsize uint, capacity uint) (*MediaPlaylist, error) {
 		return nil, err
 	}
 	p.Segments = make([]*MediaSegment, capacity)
-	p.lock = &sync.Mutex{}
+	p.lock = &sync.RWMutex{}
 	p.Live = true
 	return p, nil
 }
@@ -730,6 +730,8 @@ func (p *MediaPlaylist) DurationAsInt(yes bool) {
 
 // Count tells us the number of items that are currently in the media playlist
 func (p *MediaPlaylist) Count() uint {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
 	return p.count
 }
 
